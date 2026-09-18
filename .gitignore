@@ -1,0 +1,55 @@
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+
+.vscode
+
+# Node / Tauri client
+client/node_modules/
+client/.npm/
+client/npm-debug.log*
+client/yarn-debug.log*
+client/yarn-error.log*
+client/pnpm-debug.log*
+client/src-tauri/target/
+client/src-tauri/gen/
+client/src-tauri/binaries/
+
+# Phoenix / Elixir server
+server/.env
+server/.env.*
+!server/.env.example
+server/_build/
+server/deps/
+server/cover/
+server/doc/
+server/.fetch
+server/.elixir_ls/
+server/.lexical/
+server/erl_crash.dump
+server/priv/static/assets/*
+!server/priv/static/assets/app.css
+!server/priv/static/assets/theme.js
+server/priv/static/cache_manifest.json
+server/tmp/
+server/logs/
+
+# Logs, test output, and temporary files
+*.log
+*.pid
+*.seed
+*.pid.lock
+.coverage
+coverage/
+.nyc_output/
+
+# OS and editor-local files
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/*
+!/.vscode/extensions.json
+*.swp
+*.swo
+*~
