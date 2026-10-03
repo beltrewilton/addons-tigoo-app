@@ -28,7 +28,17 @@ defmodule PosServer.Addons.SalesSummaryReport do
       field :sale_id, :integer
       field :product_id, :integer
       field :total_amount, :decimal
+      field :discount, :decimal
       field :quantity, :float
+    end
+  end
+
+  defmodule PricingList do
+    use Ecto.Schema
+    @primary_key {:id, :integer, autogenerate: false}
+    schema "pricing_list" do
+      field :price, :decimal
+      field :product_id, :integer
     end
   end
 
@@ -116,6 +126,7 @@ defmodule PosServer.Addons.SalesSummaryReport do
       repo.all(
         from(sale in Sale,
           join: line in SaleLine, on: line.sale_id == sale.id,
+          left_join: pricing in PricingList, on: pricing.product_id == line.product_id,
           join: product in Product, on: product.id == line.product_id,
           join: client in Client, on: client.id == sale.client_id,
           join: store in Store, on: store.id == sale.store_id,
@@ -123,7 +134,18 @@ defmodule PosServer.Addons.SalesSummaryReport do
           where: not like(product.code, "4500%"),
           where: sale.date_create >= ^from and sale.date_create <= ^to,
           group_by: sale.login,
-          select: %{login: sale.login, subtotal: sum(line.total_amount)}
+          select: %{
+            login: sale.login,
+            subtotal:
+              sum(
+                fragment(
+                  "(coalesce(?, 0) * coalesce(?, 0)) - coalesce(?, 0)",
+                  pricing.price,
+                  line.quantity,
+                  line.discount
+                )
+              )
+          }
         ),
         prefix: tenant
       )
