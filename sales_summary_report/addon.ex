@@ -123,7 +123,7 @@ defmodule PosServer.Addons.SalesSummaryReport do
           where: not like(product.code, "4500%"),
           where: sale.date_create >= ^from and sale.date_create <= ^to,
           group_by: sale.login,
-          select: %{login: sale.login, subtotal: sum(line.total_amount * line.quantity)}
+          select: %{login: sale.login, subtotal: sum(line.total_amount)}
         ),
         prefix: tenant
       )
