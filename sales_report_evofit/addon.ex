@@ -252,6 +252,7 @@ defmodule PosServer.Addons.SalesReportEvofit do
         .sales-report-filter-card .card-content { overflow: visible; }
         .sales-report-filters { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: end; gap: .75rem; position: relative; z-index: 10; }
         .sales-report-picker { position: relative; }
+        .sales-report-picker > .label { display: block; margin-bottom: .35rem; }
         .sales-report-picker summary { list-style: none; }
         .sales-report-picker summary::-webkit-details-marker { display: none; }
         .sales-report-trigger { width: 100%; min-width: 260px; justify-content: flex-start; }
@@ -363,6 +364,7 @@ defmodule PosServer.Addons.SalesReportEvofit do
             }
           };
           datePicker.addEventListener("click", event => {
+            event.stopPropagation();
             const direction = event.target.closest("[data-calendar-direction]")?.dataset.calendarDirection;
             if (direction) {
               month.setMonth(month.getMonth() + (direction === "next" ? 1 : -1));
@@ -374,6 +376,7 @@ defmodule PosServer.Addons.SalesReportEvofit do
               if (!range.from || range.to) range = {from: selected, to: ""};
               else if (selected < range.from) range = {from: selected, to: range.from};
               else range = {from: range.from, to: selected};
+              datePicker.open = true;
               render();
             }
             if (event.target.closest("[data-calendar-clear]")) {

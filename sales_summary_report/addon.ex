@@ -181,6 +181,7 @@ defmodule PosServer.Addons.SalesSummaryReport do
         .sales-summary-filter-card .card-content { overflow: visible; }
         .sales-summary-filters { display: grid; grid-template-columns: minmax(240px, 360px) auto; align-items: end; gap: .75rem; position: relative; z-index: 10; }
         .sales-summary-picker { position: relative; }
+        .sales-summary-picker > .label { display: block; margin-bottom: .35rem; }
         .sales-summary-picker summary { list-style: none; }
         .sales-summary-picker summary::-webkit-details-marker { display: none; }
         .sales-summary-trigger { width: 100%; min-width: 260px; justify-content: flex-start; }
@@ -286,6 +287,7 @@ defmodule PosServer.Addons.SalesSummaryReport do
             }
           };
           datePicker.addEventListener("click", event => {
+            event.stopPropagation();
             const direction = event.target.closest("[data-calendar-direction]")?.dataset.calendarDirection;
             if (direction) {
               month.setMonth(month.getMonth() + (direction === "next" ? 1 : -1));
@@ -297,6 +299,7 @@ defmodule PosServer.Addons.SalesSummaryReport do
               if (!range.from || range.to) range = {from: selected, to: ""};
               else if (selected < range.from) range = {from: selected, to: range.from};
               else range = {from: range.from, to: selected};
+              datePicker.open = true;
               render();
             }
             if (event.target.closest("[data-calendar-clear]")) {
