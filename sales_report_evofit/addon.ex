@@ -24,7 +24,6 @@ defmodule PosServer.Addons.SalesReportEvofit do
     schema "sale_line" do
       field(:sale_id, :integer)
       field(:product_id, :integer)
-      field(:pricing_list_id, :integer)
       field(:total_amount, :decimal)
       field(:discount, :decimal)
       field(:quantity, :float)
@@ -159,8 +158,8 @@ defmodule PosServer.Addons.SalesReportEvofit do
       from(sale in Sale,
         join: line in SaleLine,
         on: line.sale_id == sale.id,
-        join: pricing in PricingList,
-        on: pricing.id == line.pricing_list_id,
+        left_join: pricing in PricingList,
+        on: pricing.product_id == line.product_id,
         join: product in Product,
         on: product.id == line.product_id,
         join: client in Client,
@@ -180,9 +179,15 @@ defmodule PosServer.Addons.SalesReportEvofit do
           fecha: sale.date_create,
           precio_unitario: pricing.price,
           cantidad: line.quantity,
-          precio: fragment("? * ?", pricing.price, line.quantity),
+          precio: fragment("coalesce(?, 0) * coalesce(?, 0)", pricing.price, line.quantity),
           descuento: line.discount,
-          facturado_al_cliente: fragment("(? * ?) - ?", pricing.price, line.quantity, line.discount)
+          facturado_al_cliente:
+            fragment(
+              "(coalesce(?, 0) * coalesce(?, 0)) - coalesce(?, 0)",
+              pricing.price,
+              line.quantity,
+              line.discount
+            )
         }
       ),
       prefix: tenant
