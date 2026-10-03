@@ -169,7 +169,7 @@ defmodule PosServer.Addons.SalesReportEvofit do
           fecha: sale.date_create,
           precio_original: line.total_amount + line.discount,
           descuento: line.discount,
-          facturado_al_cliente: line.total_amount * line.quantity
+          facturado_al_cliente: line.total_amount
         }
       ),
       prefix: tenant
