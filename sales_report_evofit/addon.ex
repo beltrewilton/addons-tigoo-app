@@ -159,7 +159,7 @@ defmodule PosServer.Addons.SalesReportEvofit do
         where: sale.status != "RETURN" and sale.login in ^logins,
         where: not like(product.code, "4500%"),
         where: sale.date_create >= ^from and sale.date_create <= ^to,
-        order_by: [asc: sale.date_create],
+        order_by: [asc: sale.date_create, asc: client.name],
         select: %{
           local: store.name,
           login: sale.login,
