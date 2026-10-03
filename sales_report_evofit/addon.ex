@@ -24,9 +24,18 @@ defmodule PosServer.Addons.SalesReportEvofit do
     schema "sale_line" do
       field(:sale_id, :integer)
       field(:product_id, :integer)
+      field(:pricing_list_id, :integer)
       field(:total_amount, :decimal)
       field(:discount, :decimal)
       field(:quantity, :float)
+    end
+  end
+
+  defmodule PricingList do
+    use Ecto.Schema
+    @primary_key {:id, :integer, autogenerate: false}
+    schema "pricing_list" do
+      field(:price, :decimal)
     end
   end
 
@@ -150,6 +159,8 @@ defmodule PosServer.Addons.SalesReportEvofit do
       from(sale in Sale,
         join: line in SaleLine,
         on: line.sale_id == sale.id,
+        join: pricing in PricingList,
+        on: pricing.id == line.pricing_list_id,
         join: product in Product,
         on: product.id == line.product_id,
         join: client in Client,
@@ -167,9 +178,11 @@ defmodule PosServer.Addons.SalesReportEvofit do
           producto: product.name,
           cliente: client.name,
           fecha: sale.date_create,
-          precio_original: line.total_amount + line.discount,
+          precio_unitario: pricing.price,
+          cantidad: line.quantity,
+          precio: fragment("? * ?", pricing.price, line.quantity),
           descuento: line.discount,
-          facturado_al_cliente: line.total_amount
+          facturado_al_cliente: fragment("(? * ?) - ?", pricing.price, line.quantity, line.discount)
         }
       ),
       prefix: tenant
@@ -248,6 +261,8 @@ defmodule PosServer.Addons.SalesReportEvofit do
         .sales-report-table-container tfoot td { position: sticky; bottom: 0; z-index: 1; background: var(--background); box-shadow: 0 -1px 0 var(--border); }
         .sales-report-total-label { display: block; color: var(--muted-foreground); font-size: .72rem; font-weight: 700; line-height: 1.1; text-transform: uppercase; }
         .sales-report-total-value { display: block; margin-top: .2rem; white-space: nowrap; font-weight: 800; }
+        .sales-report-discount { color: #ea580c; }
+        .sales-report-billed { color: #0f172a; }
         .sales-report-filter-card { overflow: visible; }
         .sales-report-filter-card .card-content { overflow: visible; }
         .sales-report-filters { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: end; gap: .75rem; position: relative; z-index: 10; }
@@ -307,7 +322,7 @@ defmodule PosServer.Addons.SalesReportEvofit do
                 <input type="radio" id={"sales-report-tab-#{index}"} name="sales-report-tab" checked={index == 0} />
                 <label class="btn" data-variant="ghost" role="tab" for={"sales-report-tab-#{index}"}><%= String.upcase(group.name) %></label>
                 <div class="sales-report-tab-panel">
-                  <div class="table-container sales-report-table-container"><table class="table"><thead><tr class="table-row"><th class="table-head">LOCAL</th><th class="table-head">PRODUCTO</th><th class="table-head">CLIENTE</th><th class="table-head">FECHA</th><th class="table-head">PRECIO ORIGINAL</th><th class="table-head"><span class="sales-report-total-label">DESCUENTO</span><span class="sales-report-total-value"><%= format_money(report_field_total(group.rows, :descuento)) %></span></th><th class="table-head"><span class="sales-report-total-label">FACTURADO AL CLIENTE</span><span class="sales-report-total-value"><%= format_money(report_field_total(group.rows, :facturado_al_cliente)) %></span></th></tr></thead><tbody><tr :for={row <- group.rows} class="table-row"><td class="table-cell"><%= row.local %></td><td class="table-cell"><%= row.producto %></td><td class="table-cell"><%= row.cliente %></td><td class="table-cell"><span><%= format_date(row.fecha) %></span><br /><small><%= format_time(row.fecha) %></small></td><td class="table-cell"><%= format_number(row.precio_original) %></td><td class="table-cell"><%= format_number(row.descuento) %></td><td class="table-cell"><%= format_number(row.facturado_al_cliente) %></td></tr></tbody><tfoot><tr class="table-row"><td class="table-cell" colspan="5"><strong>TOTAL</strong></td><td class="table-cell"><strong><%= format_money(report_field_total(group.rows, :descuento)) %></strong></td><td class="table-cell"><strong><%= format_money(report_field_total(group.rows, :facturado_al_cliente)) %></strong></td></tr></tfoot></table></div>
+                  <div class="table-container sales-report-table-container"><table class="table"><thead><tr class="table-row"><th class="table-head">LOCAL</th><th class="table-head">PRODUCTO</th><th class="table-head">CLIENTE</th><th class="table-head">FECHA</th><th class="table-head">PRECIO/UND</th><th class="table-head">CANTIDAD</th><th class="table-head">PRECIO</th><th class="table-head sales-report-discount"><span class="sales-report-total-label">DESCUENTO</span><span class="sales-report-total-value"><%= format_money(report_field_total(group.rows, :descuento)) %></span></th><th class="table-head sales-report-billed"><span class="sales-report-total-label">FACTURADO AL CLIENTE</span><span class="sales-report-total-value"><%= format_money(report_field_total(group.rows, :facturado_al_cliente)) %></span></th></tr></thead><tbody><tr :for={row <- group.rows} class="table-row"><td class="table-cell"><%= row.local %></td><td class="table-cell"><%= row.producto %></td><td class="table-cell"><%= row.cliente %></td><td class="table-cell"><span><%= format_date(row.fecha) %></span><br /><small><%= format_time(row.fecha) %></small></td><td class="table-cell"><%= format_number(row.precio_unitario) %></td><td class="table-cell"><%= format_number(row.cantidad) %></td><td class="table-cell"><%= format_number(row.precio) %></td><td class="table-cell sales-report-discount"><%= format_number(row.descuento) %></td><td class="table-cell sales-report-billed"><%= format_number(row.facturado_al_cliente) %></td></tr></tbody><tfoot><tr class="table-row"><td class="table-cell" colspan="7"><strong>TOTAL</strong></td><td class="table-cell sales-report-discount"><strong><%= format_money(report_field_total(group.rows, :descuento)) %></strong></td><td class="table-cell sales-report-billed"><strong><%= format_money(report_field_total(group.rows, :facturado_al_cliente)) %></strong></td></tr></tfoot></table></div>
                 </div>
               <% end %>
             </nav>
@@ -548,15 +563,16 @@ defmodule PosServer.Addons.SalesReportEvofit do
     |> Sheet.set_col_width("A", 18)
     |> Sheet.set_col_width("B", 42)
     |> Sheet.set_col_width("C", 34)
-    |> Sheet.set_col_width("D", 14)
-    |> Sheet.set_col_width("E", 12)
-    |> Sheet.set_col_width("F", 18)
-    |> Sheet.set_col_width("G", 17)
-    |> Sheet.set_col_width("H", 24)
+    |> Sheet.set_col_width("D", 20)
+    |> Sheet.set_col_width("E", 14)
+    |> Sheet.set_col_width("F", 12)
+    |> Sheet.set_col_width("G", 14)
+    |> Sheet.set_col_width("H", 17)
+    |> Sheet.set_col_width("I", 24)
   end
 
   defp merge_report_header(sheet) do
-    %{sheet | merge_cells: [{"A1", "H1"}, {"A2", "H2"}, {"A3", "H3"}]}
+    %{sheet | merge_cells: [{"A1", "I1"}, {"A2", "I2"}, {"A3", "I3"}]}
   end
 
   defp header_row do
@@ -565,8 +581,9 @@ defmodule PosServer.Addons.SalesReportEvofit do
       header_cell("PRODUCTO"),
       header_cell("CLIENTE"),
       header_cell("FECHA"),
-      header_cell("HORA"),
-      header_cell("PRECIO ORIGINAL"),
+      header_cell("PRECIO/UND"),
+      header_cell("CANTIDAD"),
+      header_cell("PRECIO"),
       header_cell("DESCUENTO"),
       header_cell("FACTURADO AL CLIENTE")
     ]
@@ -580,8 +597,9 @@ defmodule PosServer.Addons.SalesReportEvofit do
       ["", bg_color: "#D1FAE5"],
       ["", bg_color: "#D1FAE5"],
       ["", bg_color: "#D1FAE5"],
-      [numeric_value(discount_total), bold: true, num_format: "$#,##0.00", bg_color: "#D1FAE5", align_horizontal: :right],
-      [numeric_value(billed_total), bold: true, num_format: "$#,##0.00", bg_color: "#D1FAE5", align_horizontal: :right]
+      ["", bg_color: "#D1FAE5"],
+      [numeric_value(discount_total), bold: true, color: "#EA580C", num_format: "$#,##0.00", bg_color: "#D1FAE5", align_horizontal: :right],
+      [numeric_value(billed_total), bold: true, color: "#0F172A", num_format: "$#,##0.00", bg_color: "#D1FAE5", align_horizontal: :right]
     ]
   end
 
@@ -590,15 +608,18 @@ defmodule PosServer.Addons.SalesReportEvofit do
       row.local,
       row.producto,
       row.cliente,
-      format_date(row.fecha),
-      format_time(row.fecha),
-      money_cell(row.precio_original),
-      money_cell(row.descuento),
-      money_cell(row.facturado_al_cliente)
+      format_datetime(row.fecha),
+      money_cell(row.precio_unitario),
+      numeric_value(row.cantidad),
+      money_cell(row.precio),
+      discount_money_cell(row.descuento),
+      billed_money_cell(row.facturado_al_cliente)
     ]
   end
 
   defp money_cell(value), do: [numeric_value(value), num_format: "$#,##0.00", align_horizontal: :right]
+  defp discount_money_cell(value), do: [numeric_value(value), color: "#EA580C", num_format: "$#,##0.00", align_horizontal: :right]
+  defp billed_money_cell(value), do: [numeric_value(value), color: "#0F172A", num_format: "$#,##0.00", align_horizontal: :right]
 
   defp report_title_cell,
     do: ["REPORTE DE VENTAS", bold: true, size: 18, color: "#FFFFFF", bg_color: "#111827", align_horizontal: :center, align_vertical: :center]
@@ -675,6 +696,9 @@ defmodule PosServer.Addons.SalesReportEvofit do
 
   defp format_date(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%d/%m/%Y")
   defp format_date(value), do: to_string(value)
+
+  defp format_datetime(%NaiveDateTime{} = value), do: "#{format_date(value)} #{format_time(value)}"
+  defp format_datetime(value), do: to_string(value)
 
   defp format_time(%NaiveDateTime{} = value) do
     value
