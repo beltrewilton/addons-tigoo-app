@@ -8,11 +8,22 @@ defmodule PosServer.Addons.SalesReportEvofitProfit do
     use Ecto.Schema
     @primary_key {:id, :integer, autogenerate: false}
     schema "sale" do
+      field(:amount, :decimal)
       field(:login, :string)
       field(:status, :string)
       field(:date_create, :naive_datetime)
       field(:client_id, :integer)
       field(:store_id, :integer)
+    end
+  end
+
+  defmodule SalePaid do
+    use Ecto.Schema
+    @primary_key {:id, :integer, autogenerate: false}
+    schema "sale_paid" do
+      field(:sale_id, :integer)
+      field(:amount, :decimal)
+      field(:type, :string)
     end
   end
 
@@ -95,16 +106,38 @@ defmodule PosServer.Addons.SalesReportEvofitProfit do
       )
 
   defp report(repo, tenant, from, to) do
+    payment_totals =
+      from(payment in SalePaid,
+        group_by: payment.sale_id,
+        select: %{
+          sale_id: payment.sale_id,
+          total_paid: coalesce(sum(payment.amount), 0)
+        }
+      )
+
+    line_totals =
+      from(line in SaleLine,
+        group_by: line.sale_id,
+        select: %{
+          sale_id: line.sale_id,
+          line_total: coalesce(sum(line.total_amount), 0)
+        }
+      )
+
     repo.all(
       from(sale in Sale,
         join: line in SaleLine,
         on: line.sale_id == sale.id,
+        left_join: payment_total in subquery(payment_totals),
+        on: payment_total.sale_id == sale.id,
+        left_join: line_total in subquery(line_totals),
+        on: line_total.sale_id == sale.id,
         join: product in Product,
         on: product.id == line.product_id,
         join: client in Client,
         on: client.id == sale.client_id,
         where: sale.status != "RETURN",
-        where: sale.date_create >= ^from and sale.date_create <= ^to,
+        where: sale.date_create >= ^from and sale.date_create < ^to,
         order_by: [asc: sale.date_create, asc: client.name],
         select: %{
           login: sale.login,
@@ -115,11 +148,33 @@ defmodule PosServer.Addons.SalesReportEvofitProfit do
           cantidad: line.quantity,
           costo_producto:
             fragment("coalesce(?, 0) * coalesce(?, 0)", product.cost, line.quantity),
-          facturado_al_cliente: line.total_amount,
+          facturado_al_cliente:
+            fragment(
+              """
+              CASE
+                WHEN coalesce(?, 0) = 0 THEN 0
+                ELSE coalesce(?, 0) * coalesce(?, 0) / ?
+              END
+              """,
+              line_total.line_total,
+              payment_total.total_paid,
+              line.total_amount,
+              line_total.line_total
+            ),
           utilidad:
             fragment(
-              "coalesce(?, 0) - (coalesce(?, 0) * coalesce(?, 0))",
+              """
+              (
+                CASE
+                  WHEN coalesce(?, 0) = 0 THEN 0
+                  ELSE coalesce(?, 0) * coalesce(?, 0) / ?
+                END
+              ) - (coalesce(?, 0) * coalesce(?, 0))
+              """,
+              line_total.line_total,
+              payment_total.total_paid,
               line.total_amount,
+              line_total.line_total,
               product.cost,
               line.quantity
             )
@@ -136,7 +191,7 @@ defmodule PosServer.Addons.SalesReportEvofitProfit do
          {:ok, to_date} <- Date.from_iso8601(to),
          true <- Date.compare(from_date, to_date) != :gt do
       {:ok, NaiveDateTime.new!(from_date, ~T[00:00:00]),
-       NaiveDateTime.new!(to_date, ~T[23:59:59])}
+       NaiveDateTime.new!(Date.add(to_date, 1), ~T[00:00:00])}
     else
       false -> {:error, "The start date must be on or before the end date."}
       _ -> {:error, "Seleccione un rango de fechas válido."}
@@ -243,7 +298,7 @@ defmodule PosServer.Addons.SalesReportEvofitProfit do
                 <input type="radio" id="sales-report-tab-detail" name="sales-report-tab" checked />
                 <label class="btn" data-variant="ghost" role="tab" for="sales-report-tab-detail">DETALLE</label>
                 <div class="sales-report-tab-panel">
-                  <div class="table-container sales-report-table-container"><table class="table"><thead><tr class="table-row"><th class="table-head">PRODUCTO</th><th class="table-head">CLIENTE</th><th class="table-head">FECHA</th><th class="table-head">COSTO/UND</th><th class="table-head">CANTIDAD</th><th class="table-head"><span class="sales-report-total-label">COSTO PRODUCTO</span><span class="sales-report-total-value"><%= format_money(report_field_total(@report, :costo_producto)) %></span></th><th class="table-head sales-report-billed"><span class="sales-report-total-label">FACTURADO AL CLIENTE</span><span class="sales-report-total-value"><%= format_money(report_field_total(@report, :facturado_al_cliente)) %></span></th><th class="table-head sales-report-profit"><span class="sales-report-total-label">UTILIDAD</span><span class="sales-report-total-value"><%= format_money(report_field_total(@report, :utilidad)) %></span></th></tr></thead><tbody><tr :for={row <- @report} class="table-row"><td class="table-cell"><%= row.producto %></td><td class="table-cell"><%= row.cliente %></td><td class="table-cell"><span><%= format_date(row.fecha) %></span><br /><small><%= format_time(row.fecha) %></small></td><td class="table-cell"><%= format_number(row.costo_unitario) %></td><td class="table-cell"><%= format_number(row.cantidad) %></td><td class="table-cell"><%= format_number(row.costo_producto) %></td><td class="table-cell sales-report-billed"><%= format_number(row.facturado_al_cliente) %></td><td class="table-cell sales-report-profit"><%= format_number(row.utilidad) %></td></tr></tbody><tfoot><tr class="table-row"><td class="table-cell" colspan="5"><strong>TOTAL</strong></td><td class="table-cell"><strong><%= format_money(report_field_total(@report, :costo_producto)) %></strong></td><td class="table-cell sales-report-billed"><strong><%= format_money(report_field_total(@report, :facturado_al_cliente)) %></strong></td><td class="table-cell sales-report-profit"><strong><%= format_money(report_field_total(@report, :utilidad)) %></strong></td></tr></tfoot></table></div>
+                  <div class="table-container sales-report-table-container"><table class="table"><thead><tr class="table-row"><th class="table-head">PRODUCTO</th><th class="table-head">CLIENTE</th><th class="table-head">FECHA</th><th class="table-head">COSTO/UND</th><th class="table-head">CANTIDAD</th><th class="table-head"><span class="sales-report-total-label">COSTO PRODUCTO</span><span class="sales-report-total-value"><%= format_money(report_field_total(@report, :costo_producto)) %></span></th><th class="table-head sales-report-billed"><span class="sales-report-total-label">INGRESO TOTALES</span><span class="sales-report-total-value"><%= format_money(report_field_total(@report, :facturado_al_cliente)) %></span></th><th class="table-head sales-report-profit"><span class="sales-report-total-label">UTILIDAD</span><span class="sales-report-total-value"><%= format_money(report_field_total(@report, :utilidad)) %></span></th></tr></thead><tbody><tr :for={row <- @report} class="table-row"><td class="table-cell"><%= row.producto %></td><td class="table-cell"><%= row.cliente %></td><td class="table-cell"><span><%= format_date(row.fecha) %></span><br /><small><%= format_time(row.fecha) %></small></td><td class="table-cell"><%= format_number(row.costo_unitario) %></td><td class="table-cell"><%= format_number(row.cantidad) %></td><td class="table-cell"><%= format_number(row.costo_producto) %></td><td class="table-cell sales-report-billed"><%= format_decimal_2(row.facturado_al_cliente) %></td><td class="table-cell sales-report-profit"><%= format_number(row.utilidad) %></td></tr></tbody><tfoot><tr class="table-row"><td class="table-cell" colspan="5"><strong>TOTAL</strong></td><td class="table-cell"><strong><%= format_money(report_field_total(@report, :costo_producto)) %></strong></td><td class="table-cell sales-report-billed"><strong><%= format_money(report_field_total(@report, :facturado_al_cliente)) %></strong></td><td class="table-cell sales-report-profit"><strong><%= format_money(report_field_total(@report, :utilidad)) %></strong></td></tr></tfoot></table></div>
                 </div>
                 <input type="radio" id="sales-report-tab-profit" name="sales-report-tab" />
                 <label class="btn" data-variant="ghost" role="tab" for="sales-report-tab-profit">DIARIO</label>
@@ -251,17 +306,17 @@ defmodule PosServer.Addons.SalesReportEvofitProfit do
                   <div class="sales-report-chart" aria-label="Utilidad y facturado al cliente por día">
                     <div class="sales-report-chart-legend">
                       <span class="sales-report-chart-key"><span class="sales-report-chart-swatch" data-series="profit"></span>Utilidad: <%= format_money(report_field_total(@report, :utilidad)) %></span>
-                      <span class="sales-report-chart-key"><span class="sales-report-chart-swatch" data-series="billed"></span>Facturado al cliente: <%= format_money(report_field_total(@report, :facturado_al_cliente)) %></span>
+                      <span class="sales-report-chart-key"><span class="sales-report-chart-swatch" data-series="billed"></span>Ingreso totales: <%= format_money(report_field_total(@report, :facturado_al_cliente)) %></span>
                     </div>
                     <svg viewBox="0 0 1000 380" role="img" aria-labelledby="sales-report-daily-chart-title">
-                      <title id="sales-report-daily-chart-title">Utilidad y facturado al cliente por día</title>
+                      <title id="sales-report-daily-chart-title">Utilidad e ingreso totales por día</title>
                       <line :for={tick <- chart_ticks(@daily_totals)} class="sales-report-chart-grid" x1="70" y1={tick.y} x2="970" y2={tick.y} />
                       <text :for={tick <- chart_ticks(@daily_totals)} class="sales-report-chart-y-label" x="62" y={tick.y + 4}><%= tick.label %></text>
                       <line class="sales-report-chart-axis" x1="70" y1="42" x2="70" y2="300" />
                       <line class="sales-report-chart-axis" x1="70" y1="300" x2="970" y2="300" />
                       <path class="sales-report-chart-line" data-series="billed" d={chart_path(@daily_totals, :billed)} />
                       <path class="sales-report-chart-line" data-series="profit" d={chart_path(@daily_totals, :profit)} />
-                      <circle :for={point <- chart_points(@daily_totals, :billed)} class="sales-report-chart-dot" data-series="billed" cx={point.x} cy={point.y} r="4.5"><title><%= point.label %> - Facturado: <%= format_money(point.value) %></title></circle>
+                      <circle :for={point <- chart_points(@daily_totals, :billed)} class="sales-report-chart-dot" data-series="billed" cx={point.x} cy={point.y} r="4.5"><title><%= point.label %> - Ingreso: <%= format_money(point.value) %></title></circle>
                       <circle :for={point <- chart_points(@daily_totals, :profit)} class="sales-report-chart-dot" data-series="profit" cx={point.x} cy={point.y} r="4.5"><title><%= point.label %> - Utilidad: <%= format_money(point.value) %></title></circle>
                       <text :for={point <- chart_points(@daily_totals, :profit)} class="sales-report-chart-profit-label" x={point.x} y={point.y - 12}><%= format_compact_money(point.value) %></text>
                       <text :for={point <- chart_label_points(@daily_totals)} class="sales-report-chart-label" x={point.x} y="338" transform={"rotate(-35 #{point.x} 338)"}><%= point.label %></text>
@@ -555,6 +610,16 @@ defmodule PosServer.Addons.SalesReportEvofitProfit do
   defp format_number(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 2)
   defp format_number(value) when is_integer(value), do: Integer.to_string(value)
   defp format_number(value), do: to_string(value)
+
+  defp format_decimal_2(nil), do: "—"
+
+  defp format_decimal_2(%Decimal{} = value),
+    do: value |> Decimal.round(2) |> Decimal.to_string(:normal)
+
+  defp format_decimal_2(value) when is_number(value),
+    do: :erlang.float_to_binary(value, decimals: 2)
+
+  defp format_decimal_2(value), do: to_string(value)
 
   defp format_money(value) do
     amount = numeric_value(value)
